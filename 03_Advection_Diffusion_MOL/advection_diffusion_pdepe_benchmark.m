@@ -1,68 +1,55 @@
-% Resolución del problema de advección-difusión usando PDEPE
-
 function advection_diffusion_pdepe_benchmark
+    % 3D Benchmark of the 1D Advection-Diffusion Problem using MATLAB's pdepe solver
+    m = input('Enter number of spatial subdivisions m: ');
+    n = input('Enter number of temporal subdivisions n: ');
 
-    % Entrada del usuario
-    m = input('Ingrese el valor de m (nro de divisiones espaciales): ');
-    n = input('Ingrese el valor de n (nro de divisiones temporales): ');
+    x = linspace(0, 1, m + 1);
+    t = linspace(0, 1, n + 1);
 
-    fprintf('Seleccione el metodo para comparar:\n');
-    fprintf('  0 - Explicito (theta = 0)\n');
-    fprintf('  1 - Crank-Nicolson (theta = 0.5)\n');
-    fprintf('  2 - Implicito (theta = 1)\n');
-    metodo = input('Opcion: ');
-    thetas = [0, 0.5, 1];
-    theta = thetas(metodo + 1);
+    sol = pdepe(0, @pde_equation, @initial_condition, @boundary_conditions, x, t);
 
-    x = linspace(0, 1, m+1);
-    t = linspace(0, 1, n+1);
-
-    sol = pdepe(0, @pdeeq, @u0, @bc, x, t);
-
-    % Solucion exacta
+    % Exact analytical solution over space-time mesh
     [X, T] = meshgrid(x, t);
-    Uex = exp(-T) .* (-3*X.^2 + 6*X + 1);
+    U_exact = exp(-T) .* (-3 * X.^2 + 6 * X + 1);
 
-    % Error
-    error = max(max(abs(sol - Uex)));
-    fprintf('Error maximo con pdepe (comparado con \theta = %.1f): %.4e\n', theta, error);
+    % Maximum error across the space-time grid
+    max_error = max(max(abs(sol - U_exact)));
+    fprintf('Maximum space-time error using pdepe: %.4e\n', max_error);
 
-    % Grafica 3D
+    % 3D Surface Plots
     figure;
     surf(x, t, sol);
-    title(sprintf('Solución numérica con pdepe (\theta = %.1f)', theta));
-    xlabel('x'); ylabel('t'); zlabel('u(x,t)');
+    title('Numerical Solution Surface u(x,t) via pdepe');
+    xlabel('Space x'); ylabel('Time t'); zlabel('u(x,t)');
+    shading interp; colorbar;
 
     figure;
-    surf(x, t, abs(sol - Uex));
-    title(sprintf('Error absoluto |u_{num} - u_{ex}| (\theta = %.1f)', theta));
-    xlabel('x'); ylabel('t'); zlabel('Error');
+    surf(x, t, abs(sol - U_exact));
+    title('Absolute Error Surface |u_{num}(x,t) - u_{exact}(x,t)|');
+    xlabel('Space x'); ylabel('Time t'); zlabel('Absolute Error');
+    shading interp; colorbar;
 end
 
-% ------------------------------
-% FUNCIONES AUXILIARES
-% ------------------------------
-
-function [c, f, s] = pdeeq(x, t, u, dudx)
+function [c, f, s] = pde_equation(x, t, ~, dudx)
     c = 1;
     f = dudx;
-    s = -0.5 * dudx + g(x, t);
+    s = -0.5 * dudx + source_term(x, t);
 end
 
-function u = u0(x)
-    u = -3*x.^2 + 6*x + 1;
+function u = initial_condition(x)
+    u = -3 * x.^2 + 6 * x + 1;
 end
 
-function [pl, ql, pr, qr] = bc(xl, ul, xr, ur, t)
-    % u(0,t) = e^{-t}
+function [pl, ql, pr, qr] = boundary_conditions(~, ul, ~, ~, t)
+    % Left boundary: Dirichlet u(0,t) = exp(-t)
     pl = ul - exp(-t);
     ql = 0;
 
-    % ux(1,t) = 0
+    % Right boundary: Homogeneous Neumann u_x(1,t) = 0
     pr = 0;
     qr = 1;
 end
 
-function val = g(x, t)
-    val = exp(-t) .* (3*x.^2 - 9*x + 8);
+function val = source_term(x, t)
+    val = exp(-t) .* (3 * x.^2 - 9 * x + 8);
 end
