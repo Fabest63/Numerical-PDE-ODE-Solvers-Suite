@@ -1,174 +1,159 @@
 function nonlinear_bvp_shooting_newton
-l = input('Ingrese un valor de k entre 2 y 6: ');
-s0 = input('Ingrese un valor para s0: ');
-nmax = input('Ingrese el número máximo de iteraciones: ');
-tol = input('Ingrese la tolerancia: ');
-valores_l = [2, 3, 4, 5, 6];
-if ~ismember(l, valores_l) 
-    disp('No es válido');
-else
+    % Nonlinear Boundary Value Problem (BVP) Solver via Newton-Raphson Shooting Method
+    % BVP: y'' = -2*y*y'/t on [1, 2], with y(1) = 1/2, y(2) = 2/3
+    l    = input('Enter grid refinement level k (integer between 2 and 6, where n = 2^k): ');
+    s0   = input('Enter initial shooting slope guess s0: ');
+    nmax = input('Enter maximum number of Newton iterations: ');
+    tol  = input('Enter convergence tolerance (e.g., 1e-8): ');
+
+    valid_k = [2, 3, 4, 5, 6];
+    if ~ismember(l, valid_k)
+        disp('Invalid value for k. Please choose an integer between 2 and 6.');
+        return;
+    end
+
     alpha = 1/2;
-    beta = 2/3;
+    beta  = 2/3;
     a = 1;
     b = 2;
     n = 2^l;
-    tau = 1/n;
-    t = linspace(a,b,n+1);
+    tau = (b - a) / n;
+    t = linspace(a, b, n + 1);
     s = s0;
     i = 0;
-    Iter = zeros(nmax,n+1);
-    while i <= nmax-1
-        i=i+1;
-        % Resolucion del PVI(s)
-        y0 = [alpha;s];
-        y = y0;
-        Y = zeros(2,n+1);
-        Y(:,1) = y0;
-        for k=0:n-1
-            f1 = der(t(k+1),y);
-            y1 = y+tau*f1;
-            f2 =der(t(k+2),y1);
-            ytau = y + tau*(f1+f2)/2;
-            Y(:,k+2)=ytau;
-            y = ytau; 
+    Iter = zeros(nmax, n + 1);
+
+    while i <= nmax - 1
+        i = i + 1;
+
+        % 1. Solve main Initial Value Problem IVP(s) via 2nd-order Runge-Kutta (Heun)
+        y0 = [alpha; s];
+        y  = y0;
+        Y  = zeros(2, n + 1);
+        Y(:, 1) = y0;
+        for k = 0:n-1
+            f1   = ode_rhs(t(k + 1), y);
+            y1   = y + tau * f1;
+            f2   = ode_rhs(t(k + 2), y1);
+            ytau = y + tau * (f1 + f2) / 2;
+            Y(:, k + 2) = ytau;
+            y = ytau;
         end
 
-        %Asi w(b,s) = yn,1 (columna última de Y fila 1)
-
-        %Resolucion del PVI(xi)
-        z0 = [0;1];
-        z = z0;
-        Z = zeros(2,n+1); %No es necesario
-        Z(:,1) = z0; %No es necesario
-        for j=0:n-1
-            g1 = der2(t(j+1),z,Y(:,j+1));
-            z1 = z+tau*g1;
-            g2 = der2(t(j+2),z1,Y(:,j+2));
-            ztau = z + tau*(g1+g2)/2;
-            Z(:,j+2)=ztau; %No es necesario
+        % 2. Solve Variational Sensitivity IVP(xi) for Newton-Raphson update
+        z0 = [0; 1];
+        z  = z0;
+        Z  = zeros(2, n + 1);
+        Z(:, 1) = z0;
+        for j = 0:n-1
+            g1   = variational_rhs(t(j + 1), z, Y(:, j + 1));
+            z1   = z + tau * g1;
+            g2   = variational_rhs(t(j + 2), z1, Y(:, j + 2));
+            ztau = z + tau * (g1 + g2) / 2;
+            Z(:, j + 2) = ztau;
             z = ztau;
         end
 
-        difer = -(Y(1,n+1)-beta)/z(1);
-        Iter(i,:) = Y(1,:);
+        % Newton-Raphson step
+        delta_s = -(Y(1, n + 1) - beta) / z(1);
+        Iter(i, :) = Y(1, :);
         Iter(all(abs(Iter) < tol, 2), :) = [];
-        
 
-        %Control de parada
+        % Stopping criterion
+        if abs(delta_s) <= tol
+            Iter(end, :) = [];
+            sol    = Y(1, :);
+            exact  = t ./ (1 + t);
+            error  = max(abs(sol - exact));
 
-        if abs(difer) <= tol
-            Iter(end, :) = []; 
-            sol = Y(1,:); %Aproximacion a w(t_k)
-            exacta = t./(1+t);
-            error = max(abs(sol-exacta));
-            disp(['El valor de la solución exacta en los puntos de aproximación es ', num2str(exacta)]);
-            disp(['El valor de la solución aproximada en los puntos de aproximación es: ', num2str(sol)]);
-            disp(['El error es: ', num2str(error)]);
-            disp(['El número de tiros es de: ', num2str(i)]);
+            disp(['Exact solution at grid nodes:        ', num2str(exact)]);
+            disp(['Numerical solution at grid nodes:    ', num2str(sol)]);
+            disp(['Maximum absolute error:              ', num2str(error)]);
+            disp(['Total Newton shooting iterations:    ', num2str(i)]);
 
-           grafi(i,t,sol,exacta,Iter)
-           impre(t,sol,exacta,error,i,l,s0,nmax,tol)
-
-            
-            return
+            plot_shooting_results(i, t, sol, exact, Iter);
+            export_shooting_table(t, sol, exact, error, i, l, s0, nmax, tol);
+            return;
         else
-            s = s + difer;
-
+            s = s + delta_s;
         end
-
     end
 
-    fprintf("Fallo de convergenica, introduzca otro s0")
-
-end
+    fprintf('Convergence failed within %d iterations. Please try a different initial guess s0.\n', nmax);
 end
 
-
-function graf = grafi(i,t,sol,exacta,Iter)
-num_tiros = "Tiro " + string(1:i-1);
-figure;
-plot(t, sol, 'b', 'LineWidth', 2); 
-hold on; 
-plot(t, exacta, 'r', 'LineWidth', 2); 
-hold on;
-plot(t, Iter', '--','LineWidth', 1); 
-hold off; 
-xlabel('t');
-ylabel('Valor de la función');
-title('Gráfico de la solución exacta y la aproximada');
-legend('Aproximada', 'Exacta');
-legend(['Solución aproximada','Solución exacta', num_tiros, ], 'Location', 'best');
-grid on;
+function plot_shooting_results(i, t, sol, exact, Iter)
+    shot_labels = "Shot " + string(1:i-1);
+    figure;
+    plot(t, sol, 'b', 'LineWidth', 2);
+    hold on;
+    plot(t, exact, 'r', 'LineWidth', 2);
+    if i > 1
+        plot(t, Iter', '--', 'LineWidth', 1);
+        legend(['Numerical Solution', 'Exact Solution', shot_labels], 'Location', 'best');
+    else
+        legend({'Numerical Solution', 'Exact Solution'}, 'Location', 'best');
+    end
+    hold off;
+    xlabel('t');
+    ylabel('y(t)');
+    title('Nonlinear BVP Solution via Newton-Raphson Shooting Method');
+    grid on;
 end
 
+function export_shooting_table(t, sol, exact, error, i, l, s0, nmax, tol)
+    u = length(t);
+    RowNames = {'Exact', 'Approx'};
 
-function imp = impre(t,sol,exacta,error,i,l,s0,nmax,tol)
-           u = length(t); % Número de columnas
+    fid = fopen('shooting_results.txt', 'a');
+    fprintf(fid, '\n');
+    fprintf(fid, 'Refinement level k:       %d\n', l);
+    fprintf(fid, 'Initial slope guess s0:   %f\n', s0);
+    fprintf(fid, 'Max allowed iterations:   %d\n', nmax);
+    fprintf(fid, 'Tolerance:                %e\n', tol);
+    fprintf(fid, 'Converged in shots:       %d\n', i);
 
-            % Definir nombres de las filas
-            Nombres = {'Exacta', 'Aproximada'}; 
+    fprintf(fid, '+------------');
+    for m = 1:u
+        fprintf(fid, '+------------');
+    end
+    fprintf(fid, '+\n');
 
-            % Crear archivo de texto
-            fid = fopen('shooting_results.txt', 'a');
-            fprintf(fid, '\n');
+    fprintf(fid, '| %-10s ', 't');
+    for m = 1:u
+        fprintf(fid, '| %-10.5f ', t(m));
+    end
+    fprintf(fid, '|\n');
 
-            fprintf(fid, 'El valor de k es: %d\n', l);
-            fprintf(fid, 'El valor de s0 es: %d\n', s0);
-            fprintf(fid, 'El número máximo de iteraciones es de: %d\n', nmax);
-            fprintf(fid, 'La tolerancia es de: %d\n', tol);
-            fprintf(fid, 'El número de tiros fue de: %d\n', i);
+    fprintf(fid, '+------------');
+    for m = 1:u
+        fprintf(fid, '+------------');
+    end
+    fprintf(fid, '+\n');
 
-            % Imprimir línea superior de la tabla
+    Data = [exact; sol];
+    for m = 1:2
+        fprintf(fid, '| %-10s ', RowNames{m});
+        for p = 1:u
+            fprintf(fid, '| %-10.5f ', Data(m, p));
+        end
+        fprintf(fid, '|\n');
+
+        fprintf(fid, '+------------');
+        for p = 1:u
             fprintf(fid, '+------------');
-            for m = 1:u
-               fprintf(fid, '+------------');
-            end
-            fprintf(fid, '+\n');
+        end
+        fprintf(fid, '+\n');
+    end
 
-            % Imprimir encabezados (Primera celda vacía + valores del Tiempo)
-            fprintf(fid, '| %-10s ', 't'); % Espacio para la primera columna
-            for m = 1:u
-                fprintf(fid, '| %-10.5f ', t(m)); 
-            end
-            fprintf(fid, '|\n');
-
-            % Imprimir línea de separación
-            fprintf(fid, '+------------');
-            for m = 1:u
-               fprintf(fid, '+------------');
-            end
-            fprintf(fid, '+\n');
-
-            % Imprimir datos con alineación centrada
-            Datos = [exacta; sol]; % Matriz con los valores
-            for m = 1:2
-                fprintf(fid, '| %-10s ', Nombres{m}); % Nombre de fila
-                for p = 1:u
-                    fprintf(fid, '| %-10.5f ', Datos(m, p)); 
-                end
-                fprintf(fid, '|\n');
-
-                % Imprimir línea de separación después de cada fila
-                fprintf(fid, '+------------');
-                for p = 1:u
-                   fprintf(fid, '+------------');
-                end
-                fprintf(fid, '+\n');
-            end
-
-        fprintf(fid, 'El error es: %d\n', error);
-
-        fclose(fid);
-
+    fprintf(fid, 'Maximum Absolute Error: %e\n', error);
+    fclose(fid);
 end
 
-
-function f=der(t,y)
-f=[y(2);-2*y(1)*y(2)/t];
+function f = ode_rhs(t, y)
+    f = [y(2); -2 * y(1) * y(2) / t];
 end
 
-
-function g=der2(t,z,y)
-g=[z(2);-2/t*(y(1)*z(2)+y(2)*z(1))];
+function g = variational_rhs(t, z, y)
+    g = [z(2); (-2 / t) * (y(1) * z(2) + y(2) * z(1))];
 end
-
